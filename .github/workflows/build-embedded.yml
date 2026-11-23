@@ -1,4 +1,5 @@
 name: Build libultrahdr Embedded (jpeg-turbo + patched libheif built-in, WITH NASM SIMD)
+
 on:
   push:
   pull_request:
@@ -7,6 +8,7 @@ on:
 jobs:
   build-embedded:
     runs-on: windows-latest
+
     steps:
       - name: Checkout libultrahdr
         uses: actions/checkout@v4
@@ -14,33 +16,46 @@ jobs:
       - name: Setup NASM
         uses: ilammy/setup-nasm@v1
 
+      - name: Verify NASM
+        shell: pwsh
+        run: |
+          nasm -v
+          # 将 nasm 所在目录显式加入环境变量，供 libjpeg-turbo 子构建继承
+          $nasmDir = Split-Path -Parent (Get-Command nasm).Source
+          "NASM=$((Get-Command nasm).Source)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "$nasmDir" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+
       - name: Setup MSVC 2022 x64
         uses: microsoft/setup-msbuild@v2
         with:
           msbuild-architecture: x64
 
-      - name: CMake Configure
+      - name: CMake Configure (Bundled Deps)
         shell: pwsh
         run: |
           cmake -G "Visual Studio 17 2022" -B build `
+            -A x64 `
             -DUHDR_BUILD_DEPS=ON `
             -DUHDR_ENABLE_HEIF=ON `
             -DUHDR_BUILD_TESTS=OFF `
-            -DBUILD_SHARED_LIBS=ON `
             ..
 
-      - name: CMake Build
+      - name: CMake Build (Verbose)
         shell: pwsh
-        run: cmake --build build --config Release
+        run: cmake --build build --config Release --verbose
 
       - name: Collect artifact
         shell: pwsh
         run: |
-          mkdir dist
-          copy build\Release\libuhdr.dll dist\
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          # 依据生成的库类型，收集 .dll / .lib / .exe
+          Get-ChildItem -Path build -Recurse -Include libuhdr.dll,uhdr.lib,libuhdr.lib,uhdr.dll,uhdr.exe -ErrorAction SilentlyContinue |
+            ForEach-Object { Copy-Item $_.FullName -Destination dist\ }
+          Get-ChildItem -Path dist -ErrorAction SilentlyContinue
 
-      - name: Upload libuhdr.dll
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: libultrahdr-embedded-win-x64-release
           path: dist/
+          if-no-files-found: warn
