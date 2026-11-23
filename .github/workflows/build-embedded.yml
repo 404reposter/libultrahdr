@@ -1,17 +1,22 @@
-name: Build libultrahdr with Bundled Deps (patched libheif + libjpeg-turbo)
+名称：使用捆绑依赖项构建 libultrahdr（已打补丁的 libheif + libjpeg-turbo）: Build libultrahdr v2.02 Release with Bundled Deps
 
 on:
   push:
+    branches: [main, master]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
 jobs:
   build-windows:
     runs-on: windows-latest
-
     steps:
-      - name: Checkout libultrahdr
+      - name: Checkout libultrahdr v2.02
         uses: actions/checkout@v4
+        with:
+          ref: v2.02
+          # 固定到官方 2.02 tag，确保可复现
+          # 若 tag 不存在则改 ref 为实际 tag 名（如 v2.02 或 2.02）
 
       # libjpeg-turbo SIMD 需要 NASM
       - name: Setup NASM
@@ -25,7 +30,7 @@ jobs:
           (Split-Path -Parent (Get-Command nasm).Source) | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
 
       # 加载 MSVC x64 环境（vcvars）
-      - name: Setup MSVC 2022/2026 x64 environment
+      - name: Setup MSVC x64 environment
         uses: microsoft/setup-msbuild@v2
         with:
           msbuild-architecture: x64
@@ -48,22 +53,41 @@ jobs:
             }
           }
 
-      # 重点：Generator 改成 Ninja，不再依赖 VS 解决方案生成器
-      - name: CMake Configure (Bundled Deps, Ninja)
+      # Ninja 生成器 + Release 构建类型
+      # 关键：CMAKE_BUILD_TYPE=Release（Ninja 单配置生成器在 Windows 下默认 Debug，必须显式指定）
+      - name: CMake Configure (Bundled Deps, Ninja, Release)
         shell: pwsh
         working-directory: ${{ github.workspace }}
         run: |
           cmake -S . -B build -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
             -DUHDR_BUILD_DEPS=ON `
             -DUHDR_ENABLE_HEIF=ON `
             -DUHDR_BUILD_TESTS=OFF `
             -DUHDR_BUILD_EXAMPLES=OFF `
-            -DBUILD_SHARED_LIBS=OFF
+            -DBUILD_SHARED_LIBS=OFF `
+            -DCMAKE_CXX_FLAGS="/O2 /DNDEBUG"
 
       - name: CMake Build
         shell: pwsh
         working-directory: ${{ github.workspace }}
         run: cmake --build build --verbose
+
+      - name: Verify Release (no Debug markers)
+        shell: pwsh
+        working-directory: ${{ github.workspace }}
+        run: |
+          # 检查 5 个 .lib 不含 Debug marker（libcpmtd / _malloc_dbg）
+          $libs = Get-ChildItem -Path build -Recurse -Filter "*.lib"
+          foreach ($lib in $libs) {
+            $bytes = [System.IO.File]::ReadAllBytes($lib.FullName)
+            $text = [System.Text.Encoding]::ASCII.GetString($bytes)
+            if ($text -match "libcpmtd" -or $text -match "_malloc_dbg") {
+              Write-Error "${lib.Name} contains Debug markers - build is not Release!"
+              exit 1
+            }
+          }
+          Write-Host "All .lib verified as Release"
 
       - name: Collect artifacts
         shell: pwsh
@@ -78,6 +102,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: libultrahdr-bundled-deps-win-x64
+          name: libultrahdr-v2.02-release-bundled-deps-win-x64
           path: dist/
           if-no-files-found: error
+          retention-days: 30
