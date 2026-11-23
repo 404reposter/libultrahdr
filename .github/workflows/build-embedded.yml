@@ -30,6 +30,26 @@ jobs:
         with:
           msbuild-architecture: x64
 
+      # ========== 新增：加载VS vcvars环境，解决CMake找不到Visual Studio实例 ==========
+      - name: Load VS2022 x64 vcvars environment
+        shell: pwsh
+        run: |
+          $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vsPath) {
+            Write-Error "Cannot find Visual Studio 2022 VC tools"
+            exit 1
+          }
+          Write-Host "Found VS at: $vsPath"
+          $vcvars = Join-Path $vsPath "VC\Auxiliary\Build\vcvars64.bat"
+          # 导出vcvars环境到当前powershell
+          cmd /c """$vcvars"" && set" | ForEach-Object {
+            if ($_ -match '^([^=]+)=(.*)$') {
+              $key = $matches[1]
+              $val = $matches[2]
+              echo "$key=$val" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+            }
+          }
+
       - name: CMake Configure (Bundled Deps)
         shell: pwsh
         working-directory: ${{ github.workspace }}
