@@ -13,7 +13,7 @@ jobs:
       - name: Checkout libultrahdr
         uses: actions/checkout@v4
 
-      # libjpeg-turbo 的 SIMD 优化需要 NASM (2.13+)
+      # libjpeg-turbo SIMD 需要 NASM
       - name: Setup NASM
         uses: ilammy/setup-nasm@v1
 
@@ -21,27 +21,25 @@ jobs:
         shell: pwsh
         run: |
           nasm -v
-          # 将 nasm 路径写入环境变量，供 libjpeg-turbo 的子构建 (ExternalProject) 继承
           "NASM=$((Get-Command nasm).Source)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           (Split-Path -Parent (Get-Command nasm).Source) | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
 
-      - name: Setup MSVC 2022 x64
+      # 加载 MSVC x64 环境（vcvars）
+      - name: Setup MSVC 2022/2026 x64 environment
         uses: microsoft/setup-msbuild@v2
         with:
           msbuild-architecture: x64
 
-      # ========== 新增：加载VS vcvars环境，解决CMake找不到Visual Studio实例 ==========
-      - name: Load VS2022 x64 vcvars environment
+      - name: Load vcvars64
         shell: pwsh
         run: |
           $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
           if (-not $vsPath) {
-            Write-Error "Cannot find Visual Studio 2022 VC tools"
+            Write-Error "Cannot find VC tools"
             exit 1
           }
           Write-Host "Found VS at: $vsPath"
           $vcvars = Join-Path $vsPath "VC\Auxiliary\Build\vcvars64.bat"
-          # 导出vcvars环境到当前powershell
           cmd /c """$vcvars"" && set" | ForEach-Object {
             if ($_ -match '^([^=]+)=(.*)$') {
               $key = $matches[1]
@@ -50,14 +48,12 @@ jobs:
             }
           }
 
-      - name: CMake Configure (Bundled Deps)
+      # 重点：Generator 改成 Ninja，不再依赖 VS 解决方案生成器
+      - name: CMake Configure (Bundled Deps, Ninja)
         shell: pwsh
         working-directory: ${{ github.workspace }}
         run: |
-          # -S . 明确指定当前目录为源码根目录
-          # -DUHDR_BUILD_DEPS=ON 是核心：自动拉取并静态构建 libjpeg-turbo 和带补丁的 libheif
-          # -DBUILD_SHARED_LIBS=OFF 推荐用于 PyInstaller 打包，生成静态库
-          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
+          cmake -S . -B build -G Ninja `
             -DUHDR_BUILD_DEPS=ON `
             -DUHDR_ENABLE_HEIF=ON `
             -DUHDR_BUILD_TESTS=OFF `
@@ -67,14 +63,13 @@ jobs:
       - name: CMake Build
         shell: pwsh
         working-directory: ${{ github.workspace }}
-        run: cmake --build build --config Release --verbose
+        run: cmake --build build --verbose
 
       - name: Collect artifacts
         shell: pwsh
         working-directory: ${{ github.workspace }}
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          # 收集生成的静态库、动态库（如果构建了的话）和可执行文件
           Get-ChildItem -Path build -Recurse -Include *.lib,*.dll,*.exe -ErrorAction SilentlyContinue |
             ForEach-Object { Copy-Item $_.FullName -Destination dist\ }
           Write-Host "Collected files:"
