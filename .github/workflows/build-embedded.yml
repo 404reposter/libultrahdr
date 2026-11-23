@@ -1,4 +1,4 @@
-name: Build libultrahdr Embedded (jpeg-turbo + patched libheif built-in)
+name: Build libultrahdr Embedded (jpeg-turbo + patched libheif built-in, WITH NASM SIMD)
 on:
   push:
   pull_request:
@@ -7,15 +7,13 @@ on:
 jobs:
   build-embedded:
     runs-on: windows-latest
-    env:
-      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
     steps:
       - name: Checkout libultrahdr
         uses: actions/checkout@v4
 
-      - name: Install NASM
-        run: choco install nasm --no-progress -y
-      
+      - name: Setup NASM
+        uses: ilammy/setup-nasm@v1
+
       - name: Setup MSVC 2022 x64
         uses: microsoft/setup-msbuild@v2
         with:
