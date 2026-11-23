@@ -1,4 +1,4 @@
-name: Build libultrahdr v2.02 Release with Bundled Deps
+name: Build libultrahdr v2.0.2 Release with Bundled Deps
 
 on:
   push:
@@ -11,10 +11,14 @@ jobs:
   build-windows:
     runs-on: windows-latest
     steps:
-      - name: Checkout libultrahdr v2.0.2
+      - name: Checkout libultrahdr v2.0.2 (commit e5f5a02)
         uses: actions/checkout@v4
         with:
-          ref: v2.0.2
+          # v2.0.2 tag 对应的 commit SHA（actions/checkout 把 ref 当 branch 处理，
+          # 用 SHA 可避免 fetch refs/heads 失败；若需跟最新 tag，改用 git tag -f 手动 checkout）
+          ref: e5f5a022fe96fc4dc2ee35c19f733a50df807abe
+          # 完整 fetch 历史，确保 SHA 可达
+          fetch-depth: 10
 
       - name: Setup NASM
         uses: ilammy/setup-nasm@v1
