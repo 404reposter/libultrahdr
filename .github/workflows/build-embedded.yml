@@ -11,10 +11,10 @@ jobs:
   build-windows:
     runs-on: windows-latest
     steps:
-      - name: Checkout libultrahdr v2.02
+      - name: Checkout libultrahdr v2.0.2
         uses: actions/checkout@v4
         with:
-          ref: v2.02
+          ref: v2.0.2
 
       - name: Setup NASM
         uses: ilammy/setup-nasm@v1
