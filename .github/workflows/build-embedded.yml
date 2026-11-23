@@ -1,4 +1,4 @@
-name: Build libultrahdr Embedded (jpeg-turbo + patched libheif built-in, WITH NASM SIMD)
+name: Build libultrahdr with Bundled Deps (patched libheif + libjpeg-turbo)
 
 on:
   push:
@@ -6,13 +6,14 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-embedded:
+  build-windows:
     runs-on: windows-latest
 
     steps:
       - name: Checkout libultrahdr
         uses: actions/checkout@v4
 
+      # libjpeg-turbo 的 SIMD 优化需要 NASM (2.13+)
       - name: Setup NASM
         uses: ilammy/setup-nasm@v1
 
@@ -20,10 +21,9 @@ jobs:
         shell: pwsh
         run: |
           nasm -v
-          # 将 nasm 所在目录显式加入环境变量，供 libjpeg-turbo 子构建继承
-          $nasmDir = Split-Path -Parent (Get-Command nasm).Source
+          # 将 nasm 路径写入环境变量，供 libjpeg-turbo 的子构建 (ExternalProject) 继承
           "NASM=$((Get-Command nasm).Source)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "$nasmDir" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          (Split-Path -Parent (Get-Command nasm).Source) | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
 
       - name: Setup MSVC 2022 x64
         uses: microsoft/setup-msbuild@v2
@@ -32,30 +32,37 @@ jobs:
 
       - name: CMake Configure (Bundled Deps)
         shell: pwsh
+        working-directory: ${{ github.workspace }}
         run: |
-          cmake -G "Visual Studio 17 2022" -B build `
-            -A x64 `
+          # -S . 明确指定当前目录为源码根目录
+          # -DUHDR_BUILD_DEPS=ON 是核心：自动拉取并静态构建 libjpeg-turbo 和带补丁的 libheif
+          # -DBUILD_SHARED_LIBS=OFF 推荐用于 PyInstaller 打包，生成静态库
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
             -DUHDR_BUILD_DEPS=ON `
             -DUHDR_ENABLE_HEIF=ON `
             -DUHDR_BUILD_TESTS=OFF `
-            ..
+            -DUHDR_BUILD_EXAMPLES=OFF `
+            -DBUILD_SHARED_LIBS=OFF
 
-      - name: CMake Build (Verbose)
+      - name: CMake Build
         shell: pwsh
+        working-directory: ${{ github.workspace }}
         run: cmake --build build --config Release --verbose
 
-      - name: Collect artifact
+      - name: Collect artifacts
         shell: pwsh
+        working-directory: ${{ github.workspace }}
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          # 依据生成的库类型，收集 .dll / .lib / .exe
-          Get-ChildItem -Path build -Recurse -Include libuhdr.dll,uhdr.lib,libuhdr.lib,uhdr.dll,uhdr.exe -ErrorAction SilentlyContinue |
+          # 收集生成的静态库、动态库（如果构建了的话）和可执行文件
+          Get-ChildItem -Path build -Recurse -Include *.lib,*.dll,*.exe -ErrorAction SilentlyContinue |
             ForEach-Object { Copy-Item $_.FullName -Destination dist\ }
-          Get-ChildItem -Path dist -ErrorAction SilentlyContinue
+          Write-Host "Collected files:"
+          Get-ChildItem dist
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: libultrahdr-embedded-win-x64-release
+          name: libultrahdr-bundled-deps-win-x64
           path: dist/
-          if-no-files-found: warn
+          if-no-files-found: error
