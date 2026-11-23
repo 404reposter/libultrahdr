@@ -2,19 +2,24 @@ name: Build libultrahdr Embedded (jpeg-turbo + patched libheif built-in)
 on:
   push:
   pull_request:
-  workflow_dispatch:  # 可以手动点按钮触发编译
+  workflow_dispatch:
 
 jobs:
   build-embedded:
     runs-on: windows-latest
+    env:
+      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
     steps:
       - name: Checkout libultrahdr
         uses: actions/checkout@v4
 
-      - name: Setup MSVC x64
-        uses: ilammy/msvc-dev-cmd@v1
+      - name: Install NASM
+        run: choco install nasm --no-progress -y
+      
+      - name: Setup MSVC 2022 x64
+        uses: microsoft/setup-msbuild@v2
         with:
-          arch: x64
+          msbuild-architecture: x64
 
       - name: CMake Configure & Build Embedded Version
         run: |
